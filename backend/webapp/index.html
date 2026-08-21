@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Waste Classifier Dashboard</title>
+    <meta name="description" content="Developer dashboard for the Wet/Dry Waste Classification CNN — test models, explore datasets, and review evaluation metrics.">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="background-orbs">
+        <div class="orb orb-1"></div>
+        <div class="orb orb-2"></div>
+    </div>
+
+    <main class="container dashboard-container">
+        <header>
+            <h1>Waste Classification</h1>
+            <p>Test models, explore datasets, and view insights.</p>
+        </header>
+
+        <div class="dashboard-tabs">
+            <button class="dash-tab active" data-target="tester-view">Classifier Tester</button>
+            <button class="dash-tab" data-target="explorer-view">Dataset Explorer</button>
+            <button class="dash-tab" data-target="insights-view">Model Insights</button>
+        </div>
+
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <!-- 1. Classifier Tester                                   -->
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <div id="tester-view" class="dash-view active">
+            <section class="input-section glass-panel">
+                <div class="tabs">
+                    <button class="tab active" data-target="upload-tab">Upload Image</button>
+                    <button class="tab" data-target="url-tab">Image URL</button>
+                    <button class="tab" data-target="camera-tab">Use Camera</button>
+                </div>
+
+                <!-- Upload Tab -->
+                <div id="upload-tab" class="tab-content active">
+                    <div class="drop-zone" id="drop-zone">
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="17 8 12 3 7 8"></polyline>
+                            <line x1="12" y1="3" x2="12" y2="15"></line>
+                        </svg>
+                        <p>Drag & drop your image here</p>
+                        <span>or <button class="text-btn" id="browse-btn">browse files</button></span>
+                        <input type="file" id="file-input" accept="image/*" hidden>
+                    </div>
+                    <div id="file-preview-container" class="preview-container hidden">
+                        <img id="file-preview-img" src="" alt="Preview">
+                        <button class="icon-btn remove-btn" id="remove-file-btn" title="Remove image">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                        </button>
+                    </div>
+                    <button class="primary-btn" id="predict-file-btn" disabled>Classify Image</button>
+                </div>
+
+                <!-- URL Tab -->
+                <div id="url-tab" class="tab-content">
+                    <div class="input-group">
+                        <input type="url" id="url-input" placeholder="https://example.com/image.jpg" autocomplete="off">
+                    </div>
+                    <button class="primary-btn" id="predict-url-btn" disabled>Classify from URL</button>
+                </div>
+
+                <!-- Camera Tab -->
+                <div id="camera-tab" class="tab-content">
+                    <div class="camera-view" id="camera-view">
+                        <video id="camera-video" class="hidden" autoplay playsinline muted></video>
+                        <canvas id="camera-canvas" class="hidden"></canvas>
+                        <!-- Framing guide: an aiming aid only. It is a CSS overlay,
+                             so it is never part of the captured image. -->
+                        <div class="camera-guide hidden" id="camera-guide">
+                            <span class="guide-corner tl"></span>
+                            <span class="guide-corner tr"></span>
+                            <span class="guide-corner bl"></span>
+                            <span class="guide-corner br"></span>
+                            <span class="guide-hint">Place the item inside the frame</span>
+                        </div>
+                    </div>
+                    <button class="primary-btn" id="start-camera-btn">Start Camera</button>
+                    <button class="primary-btn hidden" id="capture-btn">Capture Photo</button>
+                    <div class="camera-confirm-row hidden" id="camera-confirm-row">
+                        <button class="secondary-btn" id="retake-btn">Retake</button>
+                        <button class="primary-btn" id="predict-camera-btn">Classify Image</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Loading -->
+            <div id="loading-state" class="state-container hidden">
+                <div class="spinner"></div>
+                <p>Analyzing image...</p>
+            </div>
+
+            <!-- Results -->
+            <section id="results-section" class="results-section glass-panel hidden">
+                <h2>Classification Result</h2>
+                <div class="result-card">
+                    <div class="result-image"><img id="result-img" src="" alt="Analyzed image"><div id="bbox-overlay" class="bbox-overlay hidden"></div></div>
+                    <div class="result-details">
+                        <div class="prediction-header">
+                            <h3>Predicted Class</h3>
+                            <div class="badge" id="predicted-badge">WET</div>
+                        </div>
+                        <div class="confidence-stats">
+                            <div class="stat-row">
+                                <div class="stat-labels"><span>Dry Waste</span><span id="dry-prob">0%</span></div>
+                                <div class="progress-bar"><div class="progress dry-fill" id="dry-fill" style="width: 0%"></div></div>
+                            </div>
+                            <div class="stat-row">
+                                <div class="stat-labels"><span>Wet Waste</span><span id="wet-prob">0%</span></div>
+                                <div class="progress-bar"><div class="progress wet-fill" id="wet-fill" style="width: 0%"></div></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <button class="secondary-btn" id="reset-btn">Test Another Image</button>
+            </section>
+
+            <!-- Error -->
+            <div id="error-state" class="error-container glass-panel hidden">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                <p id="error-message">Something went wrong.</p>
+            </div>
+        </div>
+
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <!-- 2. Dataset Explorer                                    -->
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <div id="explorer-view" class="dash-view hidden">
+            <section class="glass-panel dataset-panel">
+
+                <!-- Folders View -->
+                <div id="dataset-folders-view">
+                    <h2 class="section-title">Available Datasets</h2>
+                    <div class="folder-grid" id="folder-grid">
+                        <div class="spinner"></div>
+                    </div>
+                </div>
+
+                <!-- Gallery View -->
+                <div id="dataset-gallery-view" class="hidden">
+                    <div class="gallery-header">
+                        <button class="icon-btn-text" id="back-to-folders">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg> Back
+                        </button>
+                        <h2 id="gallery-title" class="section-title">Dataset</h2>
+                    </div>
+
+                    <!-- Stats ribbon -->
+                    <div class="dataset-stats">
+                        <div class="stat-box">
+                            <span class="stat-value" id="stat-total">-</span>
+                            <span class="stat-label">Total</span>
+                        </div>
+                        <div class="stat-box">
+                            <span class="stat-value wet-text" id="stat-wet">-</span>
+                            <span class="stat-label">Wet</span>
+                        </div>
+                        <div class="stat-box">
+                            <span class="stat-value dry-text" id="stat-dry">-</span>
+                            <span class="stat-label">Dry</span>
+                        </div>
+                    </div>
+
+                    <!-- Filter bar -->
+                    <div class="filter-bar" id="filter-bar">
+                        <div class="filter-toggles">
+                            <button class="filter-btn active" data-filter="all">All</button>
+                            <button class="filter-btn" data-filter="wet">Wet</button>
+                            <button class="filter-btn" data-filter="dry">Dry</button>
+                        </div>
+                        <select class="filter-select" id="category-filter">
+                            <option value="">All Categories</option>
+                        </select>
+                    </div>
+
+                    <!-- Thumbnail grid -->
+                    <div class="thumbnail-grid" id="thumbnail-grid">
+                        <div class="spinner"></div>
+                    </div>
+
+                    <!-- Pagination -->
+                    <div class="viewer-controls">
+                        <button class="control-btn" id="gallery-prev" disabled>
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                        </button>
+                        <span class="image-counter" id="gallery-page">Page 1</span>
+                        <button class="control-btn" id="gallery-next" disabled>
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Image Viewer Modal -->
+            <div id="image-modal" class="modal hidden">
+                <div class="modal-content glass-panel">
+                    <button class="close-modal" id="close-modal">&times;</button>
+                    <div class="viewer-card">
+                        <div class="viewer-image">
+                            <img id="modal-img" src="" alt="Dataset Image">
+                            <div class="viewer-overlay">
+                                <span class="badge split-badge" id="modal-split">-</span>
+                                <span class="badge" id="modal-wetdry">-</span>
+                            </div>
+                        </div>
+                        <div class="viewer-details">
+                            <div class="detail-row">
+                                <span class="detail-label">Dataset Source</span>
+                                <span class="detail-value" id="modal-dataset">-</span>
+                            </div>
+                            <div class="detail-row">
+                                <span class="detail-label">Original Category</span>
+                                <span class="detail-value" id="modal-original">-</span>
+                            </div>
+                            <div class="detail-row">
+                                <span class="detail-label">Mapped Label</span>
+                                <span class="detail-value" id="modal-mapped">-</span>
+                            </div>
+                            <div class="detail-row">
+                                <span class="detail-label">Data Split</span>
+                                <span class="detail-value" id="modal-split-text">-</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <!-- 3. Model Insights                                      -->
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <div id="insights-view" class="dash-view hidden">
+            <section class="glass-panel" id="insights-content">
+                <div class="spinner"></div>
+                <!-- Content injected by JS -->
+            </section>
+        </div>
+
+    </main>
+
+    <script src="app.js?v=4"></script>
+</body>
+</html>

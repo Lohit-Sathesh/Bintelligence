@@ -1,0 +1,143 @@
+# =============================================================================
+# Wet/Dry Waste Classification — Configuration
+# =============================================================================
+
+data:
+  raw_dir: "data/raw"
+  processed_dir: "data/processed"
+  image_size: 224
+  min_image_size: 10          # Minimum dimension to keep (px)
+  valid_extensions:
+    - ".jpg"
+    - ".jpeg"
+    - ".png"
+    - ".bmp"
+    - ".webp"
+  split_ratios:
+    train: 0.70
+    val: 0.15
+    test: 0.15
+  random_seed: 42
+
+# ---------------------------------------------------------------------------
+# Dataset sources & category → wet/dry mapping
+# ---------------------------------------------------------------------------
+datasets:
+  waste_classification:
+    slug: "techsash/waste-classification-data"
+    description: "22,500 images — Organic vs Recyclable"
+    mapping:
+      O: "wet"
+      R: "dry"
+
+  garbage_classification:
+    slug: "mostafaabla/garbage-classification"
+    description: "15,150 images — 12 household garbage classes"
+    mapping:
+      biological: "wet"
+      battery: "dry"
+      brown-glass: "dry"
+      cardboard: "dry"
+      clothes: "dry"
+      green-glass: "dry"
+      metal: "dry"
+      paper: "dry"
+      plastic: "dry"
+      shoes: "dry"
+      trash: "dry"
+      white-glass: "dry"
+
+  garbage_classification_2:
+    slug: "asdasdasasdas/garbage-classification"
+    description: "6 classes — glass, paper, cardboard, plastic, metal, trash"
+    mapping:
+      glass: "dry"
+      paper: "dry"
+      cardboard: "dry"
+      plastic: "dry"
+      metal: "dry"
+      trash: "dry"
+
+  garbage_classification_v2:
+    slug: "sumn2u/garbage-classification-v2"
+    description: "10 classes — battery, biological, cardboard, clothes, glass, metal, paper, plastic, shoes, trash"
+    mapping:
+      battery: "dry"
+      biological: "wet"
+      cardboard: "dry"
+      clothes: "dry"
+      glass: "dry"
+      metal: "dry"
+      paper: "dry"
+      plastic: "dry"
+      shoes: "dry"
+      trash: "dry"
+
+  biodegradable_classification:
+    slug: "rayhanzamzamy/non-and-biodegradable-waste-dataset"
+    description: "Biodegradable vs Non-Biodegradable (~2GB)"
+    mapping:
+      N: "dry"
+      B: "wet"
+      non_biodegradable: "dry"
+      biodegradable: "wet"
+
+  waste_segregation_2:
+    slug: "aashidutt3/waste-segregation-image-dataset"
+    description: "Waste Segregation Image Dataset (~1.2GB)"
+    mapping:
+      inorganic: "dry"
+      non_recyclable: "dry"
+      recyclable: "dry"
+      organic: "wet"
+      biodegradable: "wet"
+
+  waste_classification_3:
+    slug: "phenomsg/waste-classification"
+    description: "Waste Classification Dataset (~1GB)"
+    mapping:
+      inorganic: "dry"
+      recyclable: "dry"
+      non-recyclable: "dry"
+      hazardous: "dry"
+      organic: "wet"
+      biodegradable: "wet"
+
+# ---------------------------------------------------------------------------
+# Model architecture
+# ---------------------------------------------------------------------------
+model:
+  backbone: "EfficientNetB0"
+  input_shape: [224, 224, 3]
+  dropout_rate: 0.4
+  dense_units: 256
+  freeze_base: true
+  l2: 0.00001
+  label_smoothing: 0.05
+  freeze_batchnorm: true
+
+# ---------------------------------------------------------------------------
+# Training hyper-parameters
+# ---------------------------------------------------------------------------
+training:
+  batch_size: 16
+  # Phase 1 — train head only
+  phase1_epochs: 15
+  phase1_lr: 0.001
+  # Phase 2 — fine-tune backbone
+  phase2_epochs: 35
+  phase2_lr: 0.00001
+  fine_tune_at_layer: 150      # Unfreeze layers from this index onward
+  # Callbacks
+  early_stopping_patience: 7
+  reduce_lr_patience: 3
+  reduce_lr_factor: 0.5
+
+# ---------------------------------------------------------------------------
+# Output paths
+# ---------------------------------------------------------------------------
+output:
+  models_dir: "outputs/models"
+  logs_dir: "outputs/logs"
+  plots_dir: "outputs/plots"
+  tflite_dir: "outputs/tflite"

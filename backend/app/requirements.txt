@@ -1,0 +1,9 @@
+# Runtime-only deps — no TensorFlow, no training libraries.
+# Full TF (~500 MB) replaced by ai-edge-litert (~50 MB).
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+pillow>=10.0.0
+numpy>=1.26.0
+ai-edge-litert>=1.0.1
+python-multipart>=0.0.9   # required for UploadFile
+pydantic>=2.0.0           # required for URLRequest BaseModel

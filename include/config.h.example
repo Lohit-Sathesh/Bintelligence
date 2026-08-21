@@ -1,0 +1,26 @@
+// Copy this file to `config.h` and fill in your own values.
+//   cp include/config.h.example include/config.h
+//
+// config.h is gitignored because it contains WiFi credentials in plaintext.
+
+// Wi-Fi Credentials
+const char* ssid     = "YOUR_WIFI_SSID";
+const char* password = "YOUR_WIFI_PASSWORD";
+
+// Server Settings
+// server_url is only the *last known* address. On boot the firmware probes it
+// first, and if it does not answer it scans the local subnet for the classifier
+// server, so a DHCP/hotspot IP change no longer requires a reflash.
+const char* server_url = "http://192.168.1.100:8000/predict";
+
+#define SERVER_PORT   8000
+#define PREDICT_PATH  "/predict"
+#define HEALTH_PATH   "/health"
+
+// Per-host probe timeout during a subnet scan (ms). Higher = more reliable on a
+// congested network, but a full 254-host sweep takes proportionally longer.
+#define PROBE_TIMEOUT_MS 150
+
+// Pin Definitions
+#define IR_SENSOR_PIN 13  // Signal pin of IR Sensor
+#define SERVO_PIN 14     // PWM Signal pin for MG996R

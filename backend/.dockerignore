@@ -1,0 +1,14 @@
+venv/
+data/
+outputs/models/
+outputs/logs/
+training/
+src/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+.git/
+.gitignore
+config/
+*.md

@@ -1,0 +1,39 @@
+# Data
+data/
+outputs/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# Virtual environment
+venv/
+.env/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Kaggle
+.kaggle/
+
+# Local virtualenv
+.venv/
+
+# Machine-local config (absolute data paths)
+config/config.wsl.yaml
