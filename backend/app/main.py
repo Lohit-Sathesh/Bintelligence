@@ -19,13 +19,14 @@ import os
 import urllib.request
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
 from pydantic import BaseModel
 
+from app import devices
 from app.predictor import WasteClassifier
 
 logging.basicConfig(level=logging.INFO)
@@ -67,6 +68,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(devices.router)
+
 
 # ---------------------------------------------------------------------------
 # Models
@@ -100,7 +103,11 @@ async def health_check():
 
 
 @app.post("/predict")
-async def predict(file: UploadFile = File(...)):
+async def predict(
+    file: UploadFile = File(...),
+    x_device_id: str | None = Header(None),
+    x_device_key: str | None = Header(None),
+):
     if classifier is None:
         raise HTTPException(status_code=503, detail="Model not loaded.")
     if not file.content_type or not file.content_type.startswith("image/"):
@@ -109,10 +116,14 @@ async def predict(file: UploadFile = File(...)):
         contents = await file.read()
         result = _infer(contents)
         result["filename"] = file.filename
-        return result
     except Exception as e:
         logger.error("Prediction failed: %s", e)
         raise HTTPException(status_code=500, detail=f"Prediction failed: {e}")
+
+    # Requests from a dustbin are also logged for the mobile app's live feed.
+    if x_device_id:
+        devices.record_event(x_device_id, x_device_key, result, contents)
+    return result
 
 
 @app.post("/predict-url")

@@ -1,18 +1,30 @@
 // Copy this file to `config.h` and fill in your own values.
 //   cp include/config.h.example include/config.h
 //
-// config.h is gitignored because it contains WiFi credentials in plaintext.
+// WiFi and the server URL are normally set from the Bintelligence phone app
+// (press reset twice to open the "Bintelligence-XXXX" setup hotspot) and are
+// saved in the board's flash. The values here are only first-boot defaults.
 
-// Wi-Fi Credentials
-const char* ssid     = "YOUR_WIFI_SSID";
-const char* password = "YOUR_WIFI_PASSWORD";
+// Classifier server the bin sends photos to. Use your Hugging Face Space URL
+// so it works on any network with internet, e.g.
+//   "https://your-username-waste-classifier.hf.space"
+// A LAN address like "http://192.168.1.100:8000" also works — the bin then
+// falls back to scanning the local subnet if that address stops answering.
+#define DEFAULT_SERVER_URL "https://YOUR-USERNAME-waste-classifier.hf.space"
 
-// Server Settings
-// server_url is only the *last known* address. On boot the firmware probes it
-// first, and if it does not answer it scans the local subnet for the classifier
-// server, so a DHCP/hotspot IP change no longer requires a reflash.
-const char* server_url = "http://192.168.1.100:8000/predict";
+// Optional WiFi to join on the first boot after flashing, before the app has
+// been used. Leave both empty to go straight to the setup hotspot.
+// config.h is gitignored because these are stored in plaintext.
+#define DEFAULT_WIFI_SSID ""
+#define DEFAULT_WIFI_PASS ""
 
+// Password of the "Bintelligence-XXXX" setup hotspot (8+ characters).
+// The app assumes "bintelligence"; if you change it, enter the new one in the
+// app's settings.
+#define SETUP_AP_PASSWORD "bintelligence"
+
+// LAN-server discovery (only used when DEFAULT_SERVER_URL / the saved server
+// is a plain http:// address).
 #define SERVER_PORT   8000
 #define PREDICT_PATH  "/predict"
 #define HEALTH_PATH   "/health"

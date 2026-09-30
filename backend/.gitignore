@@ -37,3 +37,7 @@ Thumbs.db
 
 # Machine-local config (absolute data paths)
 config/config.wsl.yaml
+
+# Trained Keras checkpoints (training output, ~115 MB). The deployed model
+# is app/model/waste_classifier.tflite, which stays tracked.
+models/

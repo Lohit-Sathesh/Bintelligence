@@ -2,10 +2,14 @@
 
 An ESP32-CAM dustbin that photographs whatever is dropped in, sends the image to
 a machine-learning server, and tilts a servo tray to drop the item into the
-**wet** or **dry** compartment.
+**wet** or **dry** compartment. An Android app shows what the bin is doing
+live and sets up its WiFi, so you never have to reflash it for a new network.
 
-The firmware in this repo is only half the system — it depends on the
-**garbage-sorter** FastAPI backend, which runs the classification model on a PC.
+| Part | Folder | Runs on |
+|---|---|---|
+| Firmware | `src/`, `include/` | ESP32-CAM inside the bin |
+| Classifier server + training | `backend/` (formerly the separate **garbage-sorter** repo) | Hugging Face Space (or a PC on the LAN) |
+| Mobile app | `mobile/` | Android phone |
 
 ---
 
@@ -23,12 +27,13 @@ The firmware in this repo is only half the system — it depends on the
    │        ▼                                                      │
    │   HTTP POST  multipart/form-data                              │
    └────────┬──────────────────────────────────────────────────────┘
-            │  WiFi (same LAN)
+            │  HTTPS, over any WiFi with internet
             ▼
    ┌───────────────────────────────────────────────────────────────┐
-   │  LAPTOP — garbage-sorter (FastAPI + TFLite)                   │
+   │  HUGGING FACE SPACE — garbage-sorter (FastAPI + TFLite)       │
    │                                                               │
    │   POST /predict ──► EfficientNetB0 ──► {"class":"wet"|"dry"}  │
+   │   /device/*  ◄── heartbeats, photos, logs ──►  phone app      │
    └────────┬──────────────────────────────────────────────────────┘
             │  JSON response
             ▼
@@ -146,11 +151,12 @@ Power is the single most common cause of failures on this build.
 | Framework | Arduino for ESP32 (`espressif32` platform) |
 | Build system | PlatformIO |
 | Camera | `esp_camera` (ESP-IDF component bundled with the Arduino core) |
-| Networking | `WiFi.h`, `HTTPClient.h`, `WiFiServer` (wireless log) |
+| Networking | `WiFi.h`, `HTTPClient.h` + `WiFiClientSecure` (HTTPS), `WiFiServer` (wireless log) |
+| WiFi setup | `WebServer` + `DNSServer` setup hotspot, settings in NVS via `Preferences` |
 | Servo | [`madhephaestus/ESP32Servo`](https://github.com/madhephaestus/ESP32Servo) — LEDC-based PWM |
 | Log viewer | `wireless_monitor.py` (Python 3 standard library only) |
 
-**Backend (separate `garbage-sorter` repo)**
+**Backend (`backend/`, formerly the separate `garbage-sorter` repo)**
 
 | Layer | Technology |
 |---|---|
@@ -159,6 +165,15 @@ Power is the single most common cause of failures on this build.
 | Model | EfficientNetB0 transfer learning, binary sigmoid + 7×7 Grad-CAM heatmap |
 | Training | TensorFlow / Keras, Kaggle waste datasets |
 | Frontend | Vanilla HTML/CSS/JS dashboard (upload · URL · webcam) |
+| Device telemetry | `app/devices.py` — in-memory heartbeats, sort history, logs, commands |
+
+**Mobile app (`mobile/`)**
+
+| Layer | Technology |
+|---|---|
+| Framework | Expo SDK 57 · React Native 0.86 · TypeScript · Expo Router |
+| WiFi setup | Local Expo module `modules/bin-wifi` (Kotlin, `WifiNetworkSpecifier`) |
+| UI | `expo-image`, `react-native-svg`, `@expo/vector-icons`, light/dark themes |
 
 ---
 
@@ -172,6 +187,9 @@ monitor_speed = 115200          ; must match Serial.begin(115200)
 monitor_filters = esp32_exception_decoder, direct
                                 ; decodes crash backtraces into file:line
 board_build.f_cpu = 240000000L  ; run the CPU at full 240 MHz
+board_build.partitions = huge_app.csv
+                                ; 3 MB app slot (no OTA) — TLS + web server
+                                ;   + camera outgrow the default 1.2 MB
 platform = espressif32
 board = esp32cam                ; AI-Thinker ESP32-CAM board definition
 framework = arduino
@@ -183,9 +201,8 @@ lib_deps =
 
 Two things worth knowing:
 
-- **`ArduinoJson` is declared but not currently used.** The firmware parses the
-  response with plain `String::indexOf()` rather than a JSON parser. It is
-  harmless to leave, and useful if you later want proper parsing.
+- **`ArduinoJson`** builds the heartbeat and the setup-mode API replies. The
+  `/predict` result is still matched with `String::indexOf()`.
 - **The `^` version ranges are not pinned.** PlatformIO may resolve a newer
   library or platform version on a fresh checkout than the one you originally
   built against, which can change behaviour without any code edit. If you want
@@ -196,53 +213,84 @@ Two things worth knowing:
 
 ## Setup
 
-### 1. Start the backend
+### 1. Deploy the classifier server to Hugging Face
 
-The firmware is useless without it — every classification is an HTTP call.
+A free Hugging Face Space gives the server one fixed `https://` address, so the
+bin and the phone can reach it from any network — no laptop, no IP addresses.
+
+1. Create an account at <https://huggingface.co>, then **New → Space**.
+   Name it e.g. `waste-classifier`, choose **Docker → Blank**, hardware
+   **CPU basic (free)**, visibility **Public**.
+2. Upload the contents of `backend/` to the Space. Either drag the files into
+   **Files → Add file → Upload files** (at minimum `Dockerfile`, `README.md`,
+   `.gitattributes`, `app/` and `webapp/`), or from a terminal:
+
+   ```bash
+   pip install -U huggingface_hub
+   hf auth login                                   # paste a write token
+   cd backend
+   hf upload YOUR-USERNAME/waste-classifier . . --repo-type space
+   ```
+3. Wait for the Space to show **Running**, then open
+   `https://YOUR-USERNAME-waste-classifier.hf.space/health` — it should say
+   `healthy`. The web dashboard is at the root URL.
+
+> The free tier sleeps after ~48 h without traffic. While the bin is powered
+> its heartbeats keep it awake; after a long pause the first request takes
+> ~30 s while the Space wakes up.
+
+Running locally still works for development:
 
 ```bash
-cd path/to/garbage-sorter
+cd backend
 .venv\Scripts\activate            # Windows
 python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-Wait for `Application startup complete`. Verify at <http://localhost:8000/> —
-there is a dashboard for testing images without any hardware.
-
-`--host 0.0.0.0` matters: binding to `127.0.0.1` would make the server
-unreachable from the ESP32.
-
-### 2. Configure the firmware
+### 2. Configure and flash the firmware
 
 ```bash
 cp include/config.h.example include/config.h
 ```
 
-Then edit `include/config.h`:
-
-```c
-const char* ssid     = "YOUR_WIFI_SSID";
-const char* password = "YOUR_WIFI_PASSWORD";
-const char* server_url = "http://<your-PC-IP>:8000/predict";
-```
-
-Find your PC's IP with `ipconfig` (Windows) or `ip addr` (Linux). The ESP32 and
-the PC **must be on the same WiFi network**.
-
-The IP only needs to be roughly right — it is treated as a *hint*. If it is
-stale, the firmware falls back to scanning the subnet (see below).
-
-### 3. Build and flash
+Set `DEFAULT_SERVER_URL` to your Space URL. Everything else can stay as is —
+WiFi is set from the app. (`DEFAULT_WIFI_SSID/PASS` are optional first-boot
+defaults.)
 
 ```bash
-pio run                      # compile
 pio run --target upload      # compile + flash
 ```
 
-Or use the PlatformIO toolbar buttons in VS Code. Remember the `IO0`→`GND`
-jumper if you are not using the MB shield.
+Remember the `IO0`→`GND` jumper if you are not using the MB shield.
 
-### 4. Watch it boot
+### 3. Install the app
+
+Install the APK on an Android phone (Android 10+ for automatic hotspot
+joining) — see [`mobile/README.md`](mobile/README.md) for building it. Set
+`extra.defaultServerUrl` in `mobile/app.json` to your Space URL before
+building, or enter it later under **Settings**.
+
+### 4. Connect the bin to WiFi
+
+1. In the app, tap **Set up my bin**.
+2. Press the bin's **reset button twice, quickly** (within ~3 s). A brand-new
+   bin, or one that can't join its saved network, does this by itself. The bin
+   opens a hotspot called **`Bintelligence-XXXX`** (password `bintelligence`).
+3. Tap **Find my bin** and allow Android to connect to it.
+4. Pick your WiFi from the list the bin can see and type the password.
+5. The bin saves it, restarts, joins the network and checks in with the
+   server. The app shows **“Your bin is online!”** — usually in 20–40 s.
+
+To move the bin to another network later, run the same wizard. If the bin is
+still online, the app can switch it into setup mode for you (no reset needed).
+
+No app handy? Join the `Bintelligence-XXXX` hotspot from any phone or laptop
+and open <http://192.168.4.1/> for a simple setup form.
+
+> The ESP32 only supports **2.4 GHz** WiFi, and networks that need a login
+> page (hotels, some campus WiFi) won't work. Phone hotspots work well.
+
+### 5. Watch it boot
 
 ```bash
 pio device monitor
@@ -251,34 +299,60 @@ pio device monitor
 Expected output:
 
 ```
+(Press reset again now to open the WiFi setup hotspot.)
 --- Bintelligence: Final Assembly Booting ---
+Firmware 2.0.0
+Device ID: bin-a1b2c3
 Resetting Servo to Center...
-.....
+Connecting to 'HomeWiFi' ....
 ✅ WiFi connected!
 My IP: 192.168.1.42
 Wireless log: connect to 192.168.1.42 port 23
-Probing last known server 192.168.1.100 ... found!
-Using server: http://192.168.1.100:8000/predict
+Using server: https://your-username-waste-classifier.hf.space
 ✅ Bintelligence Online!
 ```
 
+The same log is visible in the app's **Logs** tab.
+
 ---
 
-## Server auto-discovery
+## Mobile app
 
-Because DHCP (especially on a phone hotspot) reassigns addresses, the firmware
-does **not** rely on the hardcoded IP:
+| Tab | What it shows |
+|---|---|
+| **Home** | Online/offline status, WiFi + signal, today's wet/dry counts, the latest item with its photo, and quick actions (test tilt wet/dry, restart) |
+| **History** | The last 50 sorted items with photos; tap one for the bounding box and probability bars |
+| **Test** | Photograph any item (or pick one from the gallery) and classify it — like the web dashboard's tester |
+| **Logs** | The bin's live serial log, from anywhere |
+| **Settings** | Change WiFi, server URL, setup-hotspot password, forget the bin |
 
-1. **Probe the last-known IP** from `config.h` — instant when nothing moved.
-2. **Sweep the local /24** for any host answering `/health` on port 8000 —
-   takes a few seconds, and finds the server at its new address.
-3. **Retry every 30 s** in the background while no server is known, so it
-   self-heals if the bin is powered on before the laptop's server finishes
-   starting.
-4. **Re-discover after 3 consecutive POST failures**, in case the server moves
-   while running.
+The app never talks to the bin directly except during WiFi setup. Everything
+else goes through the server:
 
-This means an IP change no longer requires reflashing.
+```
+bin ──► POST /device/heartbeat  (every 15 s: status + new log lines)
+bin ──► POST /predict           (X-Device-Id / X-Device-Key → saved as a sort event)
+app ──► GET  /device/{id}/status | events | events/{n}/image | logs
+app ──► POST /device/{id}/command   → returned to the bin in its next heartbeat
+```
+
+Each bin generates a random **pairing key** on first boot. The app learns it
+during WiFi setup (over the bin's own password-protected hotspot), and the
+server only answers requests that present it. Device state is kept in memory,
+so history resets when the Space restarts.
+
+---
+
+## Server discovery (LAN servers only)
+
+With an `https://` (cloud) server the bin simply uses that URL. If the saved
+server is a plain `http://` LAN address, the older discovery logic applies,
+because DHCP (especially on a phone hotspot) reassigns addresses:
+
+1. **Probe the saved address** — instant when nothing moved.
+2. **Sweep the local /24** for any host answering `/health` on port 8000.
+3. **Retry every 30 s** in the background while no server is known.
+4. **Re-discover after 3 consecutive POST failures**, in case the server moves.
 
 ---
 
@@ -297,7 +371,8 @@ Pure Python standard library — no PuTTY, and no need to enable the Windows
 telnet client.
 
 > The log server starts only *after* WiFi connects, so the handful of lines
-> printed before `✅ WiFi connected!` are USB-only.
+> printed before `✅ WiFi connected!` are USB-only. The app's **Logs** tab
+> works from any network, since log lines travel with the heartbeat.
 
 ---
 
@@ -314,7 +389,12 @@ All tunables are constants at the top of [`src/main.cpp`](src/main.cpp):
 | `IR_DEBOUNCE_MS` | `60` | Beam must stay blocked this long to count as a detection |
 | `IR_CLEAR_MS` | `800` | Beam must stay clear this long before re-arming |
 | `IR_CLEAR_TIMEOUT_MS` | `15000` | Warn if something stays stuck in the beam |
-| `REDISCOVER_INTERVAL_MS` | `30000` | Background retry interval while no server is known |
+| `REDISCOVER_INTERVAL_MS` | `30000` | Background retry interval while no server is known (LAN servers) |
+| `HEARTBEAT_INTERVAL_MS` | `15000` | How often the bin reports to the server / picks up app commands |
+| `WIFI_CONNECT_TIMEOUT_MS` | `30000` | How long to try the saved WiFi before opening the setup hotspot |
+| `SETUP_IDLE_TIMEOUT_MS` | `300000` | Close an unused setup hotspot and retry the saved WiFi |
+| `WIFI_LOST_REBOOT_MS` | `120000` | Reboot if WiFi stays down this long while running |
+| `DRD_WINDOW_MS` | `4000` | Window for the double reset that opens setup mode |
 | `PROBE_TIMEOUT_MS` | `150` | Per-host timeout during a subnet scan (`config.h`) |
 
 ---
@@ -326,7 +406,10 @@ All tunables are constants at the top of [`src/main.cpp`](src/main.cpp):
 | Servo jerks / stutters | Under-powered or shared supply — give it its own regulated 5–6 V. Also ensure the LEDC timer reservation in `setup()` is present, so the servo and camera do not share timer 0 |
 | Servo does not move at all | Check battery voltage **under load**, not at rest; a deeply discharged Li-ion reads fine idle and collapses when the servo starts |
 | Nothing in the backend log | The ESP32 never sent a request. Check the serial/wireless log: no `🚨 Garbage Detected!` means the IR sensor is not pulling GPIO13 LOW |
-| `❌ Server Error: -1` | Server unreachable — wrong network, firewall, or backend not running |
+| `❌ Server Error: -1` | Server unreachable — no internet on this WiFi, Space asleep/building, or (LAN) firewall / backend not running |
+| App says **Waiting for your bin** | The bin hasn't sent a heartbeat to this server yet — check it's powered, and that the server URL in the app matches the one given to the bin |
+| Setup: “the bin didn't come online” | Wrong password, 5 GHz-only network, weak signal, or a login-page network. The bin reopens its hotspot after ~30 s — run setup again |
+| Setup hotspot never appears | Press reset twice faster (both presses within ~3 s), or wait: a bin that can't join its WiFi opens the hotspot after 30 s |
 | Boots, connects to WiFi, but unreachable | Classic brownout. Works on USB, fails on battery ⇒ power problem, not software |
 | Sorts in an endless loop | The tray is sitting in the IR beam at rest. Reposition the sensor to look across the opening rather than at the tray |
 | `❌ Camera init failed!` | Usually insufficient power, or a loose camera ribbon |
@@ -340,11 +423,16 @@ All tunables are constants at the top of [`src/main.cpp`](src/main.cpp):
 dustbin/
 ├── include/
 │   ├── camera_pins.h        AI-Thinker OV2640 pin map
-│   ├── config.h             WiFi + server settings   (gitignored — secrets)
+│   ├── config.h             First-boot defaults       (gitignored — secrets)
 │   └── config.h.example     Template to copy
 ├── src/
 │   └── main.cpp             All firmware logic
-├── wireless_monitor.py      WiFi serial-log viewer
+├── backend/                 Classifier server (FastAPI) — deploy to HF Spaces
+│   └── app/devices.py       Heartbeats, sort history, logs, commands
+├── mobile/                  Android app (Expo)
+│   ├── src/app/             Screens (Expo Router)
+│   └── modules/bin-wifi/    Native module that joins the setup hotspot
+├── wireless_monitor.py      WiFi serial-log viewer (LAN)
 ├── platformio.ini           Board, framework and library config
 └── README.md
 ```
@@ -353,8 +441,16 @@ dustbin/
 
 ## Security note
 
-`include/config.h` stores the WiFi SSID and password **in plaintext** and is
-therefore gitignored. If this project was ever committed with real credentials
-in it, they remain in the git history even after the file is removed — rotate
+- WiFi credentials set from the app are stored in the ESP32's flash (NVS),
+  not in the source. `include/config.h` may still hold optional first-boot
+  credentials **in plaintext** and is therefore gitignored.
+- The bin uses HTTPS but does **not verify the server certificate**
+  (`setInsecure()`), which keeps the firmware simple. Pin the root CA with
+  `g_tls.setCACert()` if that matters for your deployment.
+- Anyone within WiFi range who knows the setup-hotspot password can read the
+  bin's pairing key while it is in setup mode. Change `SETUP_AP_PASSWORD` in
+  `config.h` (and in the app's Settings → Advanced) if that matters.
+
+If `config.h` was ever committed with real credentials in it, they remain in the git history even after the file is removed — rotate
 the WiFi password, or rewrite history with
 [`git filter-repo`](https://github.com/newren/git-filter-repo).

@@ -1,0 +1,52 @@
+{
+  "expo": {
+    "name": "Bintelligence",
+    "slug": "bintelligence",
+    "scheme": "bintelligence",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "android": {
+      "package": "com.bintelligence.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#1F9D55",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.CAMERA"
+      ]
+    },
+    "extra": {
+      "defaultServerUrl": "https://YOUR-USERNAME-waste-classifier.hf.space"
+    },
+    "experiments": {
+      "typedRoutes": true
+    },
+    "plugins": [
+      "expo-router",
+      "expo-status-bar",
+      "expo-image",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Bintelligence uses the camera so you can photograph an item and check whether it's wet or dry waste.",
+          "photosPermission": "Bintelligence needs your photos so you can check an existing picture of an item.",
+          "microphonePermission": false
+        }
+      ],
+      "expo-font"
+    ]
+  }
+}
