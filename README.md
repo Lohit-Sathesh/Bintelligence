@@ -8,7 +8,7 @@ live and sets up its WiFi, so you never have to reflash it for a new network.
 | Part | Folder | Runs on |
 |---|---|---|
 | Firmware | `src/`, `include/` | ESP32-CAM inside the bin |
-| Classifier server + training | `backend/` (formerly the separate **garbage-sorter** repo) | Hugging Face Space (or a PC on the LAN) |
+| Classifier server + training | `backend/` (formerly the separate **garbage-sorter** repo) | Render free web service (or a PC on the LAN) |
 | Mobile app | `mobile/` | Android phone |
 
 ---
@@ -30,7 +30,7 @@ live and sets up its WiFi, so you never have to reflash it for a new network.
             │  HTTPS, over any WiFi with internet
             ▼
    ┌───────────────────────────────────────────────────────────────┐
-   │  HUGGING FACE SPACE — garbage-sorter (FastAPI + TFLite)       │
+   │  RENDER WEB SERVICE — backend/ (FastAPI + TFLite, Docker)     │
    │                                                               │
    │   POST /predict ──► EfficientNetB0 ──► {"class":"wet"|"dry"}  │
    │   /device/*  ◄── heartbeats, photos, logs ──►  phone app      │
@@ -213,31 +213,47 @@ Two things worth knowing:
 
 ## Setup
 
-### 1. Deploy the classifier server to Hugging Face
+### 1. Deploy the classifier server to Render
 
-A free Hugging Face Space gives the server one fixed `https://` address, so the
-bin and the phone can reach it from any network — no laptop, no IP addresses.
+A free [Render](https://render.com) web service gives the server one fixed
+`https://` address, so the bin and the phone can reach it from any network —
+no laptop, no IP addresses. Render builds `backend/Dockerfile` straight from
+this GitHub repo, and the Dockerfile already listens on the `$PORT` Render
+provides.
 
-1. Create an account at <https://huggingface.co>, then **New → Space**.
-   Name it e.g. `waste-classifier`, choose **Docker → Blank**, hardware
-   **CPU basic (free)**, visibility **Public**.
-2. Upload the contents of `backend/` to the Space. Either drag the files into
-   **Files → Add file → Upload files** (at minimum `Dockerfile`, `README.md`,
-   `.gitattributes`, `app/` and `webapp/`), or from a terminal:
+1. Push this repo to GitHub (Render deploys from it — make sure
+   `backend/app/devices.py` is committed, or the server fails to start).
+2. Sign in at <https://dashboard.render.com> with GitHub and choose
+   **New → Web Service**, then pick this repo.
+3. Settings:
 
-   ```bash
-   pip install -U huggingface_hub
-   hf auth login                                   # paste a write token
-   cd backend
-   hf upload YOUR-USERNAME/waste-classifier . . --repo-type space
-   ```
-3. Wait for the Space to show **Running**, then open
-   `https://YOUR-USERNAME-waste-classifier.hf.space/health` — it should say
-   `healthy`. The web dashboard is at the root URL.
+   | Field | Value |
+   |---|---|
+   | Name | e.g. `bintelligence` → `https://bintelligence.onrender.com` |
+   | Region | closest to you (e.g. Singapore for India) |
+   | Branch | `main` |
+   | Root Directory | **`backend`** |
+   | Language | **Docker** |
+   | Instance type | **Free** |
+   | Health Check Path (Advanced) | `/health` |
 
-> The free tier sleeps after ~48 h without traffic. While the bin is powered
-> its heartbeats keep it awake; after a long pause the first request takes
-> ~30 s while the Space wakes up.
+4. **Create Web Service.** The first build takes a few minutes. When it shows
+   **Live**, open `https://<your-service>.onrender.com/health` — it should
+   return `healthy`. The web dashboard (upload a photo to test the model) is at
+   the root URL.
+
+Every `git push` to `main` redeploys automatically.
+
+> **About the free tier**
+> - The service **sleeps after 15 min without traffic**. While the bin is
+>   powered its heartbeat (every 15 s) keeps it awake; after a pause the first
+>   request wakes it in ~30–60 s, and the bin retries on its own until then.
+> - You get **750 free hours a month** — enough for one service running 24/7.
+> - Device state (history, logs) lives **in memory** and is lost whenever the
+>   service sleeps, restarts or redeploys. Pairing is not affected — the bin
+>   re-registers with its next heartbeat.
+> - The steady `GET /health 200` lines in the Render log are Render's own
+>   health checks (from a `10.x.x.x` address), not your bin.
 
 Running locally still works for development:
 
@@ -253,42 +269,84 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 cp include/config.h.example include/config.h
 ```
 
-Set `DEFAULT_SERVER_URL` to your Space URL. Everything else can stay as is —
-WiFi is set from the app. (`DEFAULT_WIFI_SSID/PASS` are optional first-boot
-defaults.)
+Set `DEFAULT_SERVER_URL` to your Render URL (no trailing slash):
 
-```bash
-pio run --target upload      # compile + flash
+```c
+#define DEFAULT_SERVER_URL "https://bintelligence.onrender.com"
 ```
 
-Remember the `IO0`→`GND` jumper if you are not using the MB shield.
+Everything else can stay as is — WiFi is set from the app.
+`DEFAULT_WIFI_SSID/PASS` are optional first-boot defaults; watch for stray
+spaces (`"byte me "` is a different network from `"byte me"`).
+
+```bash
+pio run -t erase             # optional: wipe WiFi/server saved on the board
+pio run -t upload            # compile + flash
+pio device monitor
+```
+
+The server URL saved on the board (from an earlier setup) **overrides**
+`config.h`, so erase first if the board was set up before — or just run WiFi
+setup from the app, which overwrites it.
+
+Remember the `IO0`→`GND` jumper if you are not using the MB shield. On the MB
+shield, never hold **IO0** while pressing **RST** — that enters flashing mode.
+
+On first boot after an erase these lines are **normal**, not errors:
+
+```
+[E][Preferences.cpp:483] getString(): nvs_get_str len fail: server NOT_FOUND
+[E][Preferences.cpp:483] getString(): nvs_get_str len fail: key NOT_FOUND
+```
+
+The bin falls back to `config.h` and generates its pairing key. With no WiFi
+saved it then opens its setup hotspot.
 
 ### 3. Install the app
 
-Install the APK on an Android phone (Android 10+ for automatic hotspot
-joining) — see [`mobile/README.md`](mobile/README.md) for building it. Set
-`extra.defaultServerUrl` in `mobile/app.json` to your Space URL before
-building, or enter it later under **Settings**.
+Install `mobile/Bintelligence.apk` (or build one — see
+[`mobile/README.md`](mobile/README.md)) on an Android phone, Android 10+.
+
+**Before running WiFi setup**, open **Settings → Server URL** and enter your
+Render URL, exactly as in `config.h`. The app hands this URL to the bin during
+setup. (To bake it in, set `extra.defaultServerUrl` in `mobile/app.json`
+before building.)
 
 ### 4. Connect the bin to WiFi
 
-1. In the app, tap **Set up my bin**.
-2. Press the bin's **reset button twice, quickly** (within ~3 s). A brand-new
-   bin, or one that can't join its saved network, does this by itself. The bin
-   opens a hotspot called **`Bintelligence-XXXX`** (password `bintelligence`).
-3. Tap **Find my bin** and allow Android to connect to it.
-4. Pick your WiFi from the list the bin can see and type the password.
-5. The bin saves it, restarts, joins the network and checks in with the
-   server. The app shows **“Your bin is online!”** — usually in 20–40 s.
+1. On the phone: turn **Location on**, **WiFi on**, and the phone's own
+   **hotspot off** (Android can't search for the bin's hotspot otherwise).
+2. In the app, tap **Set up my bin**.
+3. Put the bin in setup mode, if it isn't already:
+   - A freshly flashed/erased bin, or one that can't join its saved network,
+     opens the hotspot **by itself** (after ~30 s).
+   - Otherwise press the **RST** button **twice, quickly** (within ~3 s). On
+     the MB shield it's the button labelled RST; on a bare ESP32-CAM it's on
+     the underside.
+   - If the bin is online and already linked to this phone, tap **Do it from
+     here** instead — no button needed.
 
-To move the bin to another network later, run the same wizard. If the bin is
-still online, the app can switch it into setup mode for you (no reset needed).
-
-No app handy? Join the `Bintelligence-XXXX` hotspot from any phone or laptop
-and open <http://192.168.4.1/> for a simple setup form.
+   The bin opens a hotspot called **`Bintelligence-XXXX`** (password
+   `bintelligence`).
+4. Tap **Find my bin** and allow Android to connect. If no popup appears, join
+   `Bintelligence-XXXX` in the phone's WiFi settings, choose **Stay connected**
+   when Android warns about no internet, return to the app and tap
+   **I'm connected**.
+5. Pick your WiFi from the list the bin can see and type the password.
+6. The bin saves it, restarts, joins the network and checks in with the
+   server. The app shows **“Your bin is online!”** — usually in 20–40 s (up
+   to a minute if Render was asleep).
 
 > The ESP32 only supports **2.4 GHz** WiFi, and networks that need a login
-> page (hotels, some campus WiFi) won't work. Phone hotspots work well.
+> page (hotels, some campus WiFi) won't work. Phone hotspots work well — set
+> the hotspot band to 2.4 GHz. If the hotspot is on the *same* phone you use
+> for setup, turn it off for steps 4–5 and back on right after tapping
+> **Connect bin**; the bin only tries for ~30 s before reopening its hotspot.
+
+Use the app rather than the <http://192.168.4.1/> fallback form when you can:
+the form gets the bin online, but only the app learns the pairing key, so a
+bin set up through the form won't show in the app until you run the app's
+setup.
 
 ### 5. Watch it boot
 
@@ -308,11 +366,33 @@ Connecting to 'HomeWiFi' ....
 ✅ WiFi connected!
 My IP: 192.168.1.42
 Wireless log: connect to 192.168.1.42 port 23
-Using server: https://your-username-waste-classifier.hf.space
+Using server: https://bintelligence.onrender.com
 ✅ Bintelligence Online!
 ```
 
-The same log is visible in the app's **Logs** tab.
+The same log is visible in the app's **Logs** tab. The `Please build project
+in debug configuration...` line PlatformIO prints after an upload comes from
+the crash-decoder filter and is harmless.
+
+---
+
+## Everyday use
+
+After setup, **no laptop is needed**. The bin remembers its WiFi, server URL
+and pairing key across restarts and power loss.
+
+| Situation | What to do |
+|---|---|
+| Turning the bin on after a break | Power it on (the app cannot switch it on). It rejoins its WiFi and wakes the server; the app shows it online within ~1 min |
+| Bin shows offline | Check its WiFi is on and has internet, then restart it. Still offline after a minute → run WiFi setup again |
+| Same phone, move bin to another WiFi | **Settings → Change WiFi network → Do it from here** (bin must be online) |
+| Bin's saved WiFi is gone (new place) | Nothing — it opens its setup hotspot by itself after ~30 s. Run **Set up my bin** |
+| New phone | Install the app, set the server URL in Settings, then **Set up my bin** and press **RST twice** (a new phone isn't linked yet, so it can't use *Do it from here*). Other linked phones keep working |
+
+The bin also recovers on its own: if WiFi is down for more than 2 minutes it
+reboots, and failed heartbeats (e.g. while Render wakes) are retried every
+15 s. Sort history and logs from before a server restart are gone — that is
+the in-memory store, not a fault.
 
 ---
 
@@ -339,7 +419,7 @@ app ──► POST /device/{id}/command   → returned to the bin in its next he
 Each bin generates a random **pairing key** on first boot. The app learns it
 during WiFi setup (over the bin's own password-protected hotspot), and the
 server only answers requests that present it. Device state is kept in memory,
-so history resets when the Space restarts.
+so history resets whenever the Render service sleeps, restarts or redeploys.
 
 ---
 
@@ -406,11 +486,15 @@ All tunables are constants at the top of [`src/main.cpp`](src/main.cpp):
 | Servo jerks / stutters | Under-powered or shared supply — give it its own regulated 5–6 V. Also ensure the LEDC timer reservation in `setup()` is present, so the servo and camera do not share timer 0 |
 | Servo does not move at all | Check battery voltage **under load**, not at rest; a deeply discharged Li-ion reads fine idle and collapses when the servo starts |
 | Nothing in the backend log | The ESP32 never sent a request. Check the serial/wireless log: no `🚨 Garbage Detected!` means the IR sensor is not pulling GPIO13 LOW |
-| `❌ Server Error: -1` | Server unreachable — no internet on this WiFi, Space asleep/building, or (LAN) firewall / backend not running |
+| `❌ Server Error: -1` / `⚠️ Heartbeat failed (-1)` | Server unreachable — no internet on this WiFi, Render still waking up (wait ~1 min) or deploying, or (LAN) firewall / backend not running |
+| `⚠️ Heartbeat failed (403)` | Pairing key mismatch — run WiFi setup from the app again |
+| App shows the bin **offline** | No heartbeat for 45 s. Check the WiFi has internet, search the Render log for `heartbeat` (nothing there ⇒ the bin can't reach the server), and that the app's server URL matches the bin's exactly (`https`, no trailing `/`) |
 | App says **Waiting for your bin** | The bin hasn't sent a heartbeat to this server yet — check it's powered, and that the server URL in the app matches the one given to the bin |
 | Setup: “the bin didn't come online” | Wrong password, 5 GHz-only network, weak signal, or a login-page network. The bin reopens its hotspot after ~30 s — run setup again |
-| Setup hotspot never appears | Press reset twice faster (both presses within ~3 s), or wait: a bin that can't join its WiFi opens the hotspot after 30 s |
-| Boots, connects to WiFi, but unreachable | Classic brownout. Works on USB, fails on battery ⇒ power problem, not software |
+| Setup hotspot never appears | Press reset twice faster (both presses within ~3 s), or wait: a bin that can't join its WiFi opens the hotspot after 30 s. An unused hotspot closes after 5 min while the bin retries its saved WiFi. If the serial log shows it in setup mode but the phone can't see it, hold the phone next to the board and check the antenna (see below) |
+| “Find my bin” shows no popup | Turn on Location, turn off the phone's own hotspot, wait 10–20 s — or join the hotspot by hand in WiFi settings and tap **I'm connected** |
+| Board scan finds very few networks / weak WiFi | The ESP32-CAM has a 0 Ω resistor next to the IPEX connector that selects the PCB or external antenna. Set to external with no antenna fitted, range drops to centimetres |
+| Boots, connects to WiFi, but unreachable, or `Brownout detector was triggered` | Classic brownout. Works on USB, fails on battery ⇒ power problem, not software |
 | Sorts in an endless loop | The tray is sitting in the IR beam at rest. Reposition the sensor to look across the opening rather than at the tray |
 | `❌ Camera init failed!` | Usually insufficient power, or a loose camera ribbon |
 | Everything classifies as one class | Model issue, not firmware — test the same image via the dashboard at <http://localhost:8000/> |
@@ -427,7 +511,7 @@ dustbin/
 │   └── config.h.example     Template to copy
 ├── src/
 │   └── main.cpp             All firmware logic
-├── backend/                 Classifier server (FastAPI) — deploy to HF Spaces
+├── backend/                 Classifier server (FastAPI, Docker) — deploy to Render
 │   └── app/devices.py       Heartbeats, sort history, logs, commands
 ├── mobile/                  Android app (Expo)
 │   ├── src/app/             Screens (Expo Router)

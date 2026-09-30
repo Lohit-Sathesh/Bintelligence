@@ -5,12 +5,12 @@
 // (press reset twice to open the "Bintelligence-XXXX" setup hotspot) and are
 // saved in the board's flash. The values here are only first-boot defaults.
 
-// Classifier server the bin sends photos to. Use your Hugging Face Space URL
+// Classifier server the bin sends photos to. Use your Render service URL
 // so it works on any network with internet, e.g.
-//   "https://your-username-waste-classifier.hf.space"
+//   "https://bintelligence.onrender.com"
 // A LAN address like "http://192.168.1.100:8000" also works — the bin then
 // falls back to scanning the local subnet if that address stops answering.
-#define DEFAULT_SERVER_URL "https://YOUR-USERNAME-waste-classifier.hf.space"
+#define DEFAULT_SERVER_URL "https://your-service.onrender.com"
 
 // Optional WiFi to join on the first boot after flashing, before the app has
 // been used. Leave both empty to go straight to the setup hotspot.

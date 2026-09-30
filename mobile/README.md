@@ -8,7 +8,7 @@ Live dashboard and WiFi setup for the Bintelligence smart dustbin. See the
 Set your classifier server in `app.json`:
 
 ```json
-"extra": { "defaultServerUrl": "https://YOUR-USERNAME-waste-classifier.hf.space" }
+"extra": { "defaultServerUrl": "https://your-service.onrender.com" }
 ```
 
 (It can also be changed later in the app under **Settings**.)
@@ -26,7 +26,7 @@ copy in a short folder (a `subst` drive does not help — Node resolves it back
 to the long path):
 
 ```bat
-robocopy C:\Users\slohi\Documents\PlatformIO\Projects\dustbin\mobile C:\bb\mobile /E /XD C:\Users\slohi\Documents\PlatformIO\Projects\dustbin\mobile\node_modules C:\Users\slohi\Documents\PlatformIO\Projects\dustbin\mobile\android
+robocopy C:\Users\slohi\Documents\PlatformIO\Projects\Dustbinv3\mobile C:\bb\mobile /E /XD C:\Users\slohi\Documents\PlatformIO\Projects\Dustbinv3\mobile\node_modules C:\Users\slohi\Documents\PlatformIO\Projects\Dustbinv3\mobile\android C:\Users\slohi\Documents\PlatformIO\Projects\Dustbinv3\mobile\modules\bin-wifi\android\build
 cd /d C:\bb\mobile
 npm install
 npx expo prebuild --platform android --clean

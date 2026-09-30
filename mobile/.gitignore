@@ -45,3 +45,4 @@ yarn-error.*
 
 # native module build output
 modules/bin-wifi/android/build/
+modules/bin-wifi/android/.gradle/
